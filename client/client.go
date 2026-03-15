@@ -3,12 +3,14 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"net"
+	"time"
+
 	"github.com/pouyasadri/go-bittorrent/bitfield"
 	"github.com/pouyasadri/go-bittorrent/handshake"
 	"github.com/pouyasadri/go-bittorrent/message"
 	"github.com/pouyasadri/go-bittorrent/peers"
-	"net"
-	"time"
+	"github.com/pouyasadri/go-bittorrent/ratelimit"
 )
 
 // A Client is a TCP connection with a peer
@@ -69,10 +71,14 @@ func recvBitfield(conn net.Conn) (bitfield.Bitfield, error) {
 
 // New connects with a peer, completes a handshake, and receives a handshake
 // returns an err if any of those fail.
-func New(peer peers.Peer, peerID, infoHash [20]byte) (*Client, error) {
+func New(peer peers.Peer, peerID, infoHash [20]byte, bucket *ratelimit.TokenBucket) (*Client, error) {
 	conn, err := net.DialTimeout("tcp", peer.String(), 3*time.Second)
 	if err != nil {
 		return nil, err
+	}
+
+	if bucket != nil {
+		conn = ratelimit.NewRateLimitedConn(conn, bucket)
 	}
 
 	_, err = completeHandshake(conn, infoHash, peerID)

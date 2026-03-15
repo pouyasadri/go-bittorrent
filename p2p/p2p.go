@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
-	"github.com/pouyasadri/go-bittorrent/client"
-	"github.com/pouyasadri/go-bittorrent/message"
-	"github.com/pouyasadri/go-bittorrent/peers"
-	"log"
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/pterm/pterm"
+
+	"github.com/pouyasadri/go-bittorrent/client"
+	"github.com/pouyasadri/go-bittorrent/message"
+	"github.com/pouyasadri/go-bittorrent/peers"
+	"github.com/pouyasadri/go-bittorrent/ratelimit"
 )
 
 // MaxBlockSize is the maximum size of a block
@@ -28,6 +31,7 @@ type Torrent struct {
 	PieceLength int
 	Length      int
 	Name        string
+	Bucket      *ratelimit.TokenBucket
 }
 
 type pieceWork struct {
@@ -126,14 +130,14 @@ func checkIntegrity(pw *pieceWork, buf []byte) error {
 }
 
 func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork, result chan *pieceResult) {
-	c, err := client.New(peer, t.PeerID, t.InfoHash)
+	c, err := client.New(peer, t.PeerID, t.InfoHash, t.Bucket)
 	if err != nil {
-		log.Printf("Could not handshake with %s: %s", peer.String(), err)
+		pterm.Debug.Printf("Could not handshake with %s: %s\n", peer.String(), err)
 		return
 	}
 	defer c.Conn.Close()
 
-	log.Printf("Completed handshake with %s", peer.String())
+	pterm.Debug.Printf("Completed handshake with %s\n", peer.String())
 	c.SendUnchoke()
 	c.SendInterested()
 
@@ -145,14 +149,14 @@ func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork
 		// download piece
 		buf, err := attemptDownloadPiece(c, pw)
 		if err != nil {
-			log.Printf("exiting: %s", err)
+			pterm.Debug.Printf("exiting: %s\n", err)
 			workQueue <- pw // put piece back on the queue
 			return
 		}
 
 		err = checkIntegrity(pw, buf)
 		if err != nil {
-			log.Printf("Piece #%d failed integrity check: %s", pw.index, err)
+			pterm.Debug.Printf("Piece #%d failed integrity check: %s\n", pw.index, err)
 			workQueue <- pw // put piece back on the queue
 			continue
 		}
@@ -178,7 +182,7 @@ func (t *Torrent) calculatePieceSize(index int) int {
 
 // Download downloads the torrent directly to a file
 func (t *Torrent) Download(outFile *os.File) error {
-	log.Println("Starting download for", t.Name)
+	pterm.Info.Printf("Starting download for %s\n", t.Name)
 	// Init queues for workers to retrieve work and send results
 	workQueue := make(chan *pieceWork, len(t.PieceHashes))
 	resultQueue := make(chan *pieceResult)
@@ -192,6 +196,8 @@ func (t *Torrent) Download(outFile *os.File) error {
 		go t.startDownloadWorker(peer, workQueue, resultQueue)
 	}
 
+	bar, _ := pterm.DefaultProgressbar.WithTotal(len(t.PieceHashes)).WithTitle("Downloading " + t.Name).Start()
+
 	// Collect results into a file until full
 	donePieces := 0
 	for donePieces < len(t.PieceHashes) {
@@ -203,12 +209,18 @@ func (t *Torrent) Download(outFile *os.File) error {
 		}
 		donePieces++
 
-		percent := float64(donePieces) / float64(len(t.PieceHashes)) * 100
 		numWorkers := runtime.NumGoroutine() - 1 // subtract main thread
-
-		log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers", percent, res.index, numWorkers)
-
+		
+		if bar != nil {
+		    bar.UpdateTitle(fmt.Sprintf("Downloading (Peers: %d)", numWorkers))
+		    bar.Increment()
+		}
 	}
+	
+	if bar != nil {
+	    bar.Stop()
+	}
+	
 	close(workQueue)
 	return nil
 }

@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
+	"os"
+
 	"github.com/jackpal/bencode-go"
 	"github.com/pouyasadri/go-bittorrent/p2p"
-	"os"
+	"github.com/pouyasadri/go-bittorrent/ratelimit"
 )
 
 const Port = 6881
@@ -34,14 +36,14 @@ type bencodeTorrent struct {
 }
 
 // DownloadToFile downloads a torrent file and writes it to a file
-func (t *TorrentFile) DownloadToFile(path string) error {
+func (t *TorrentFile) DownloadToFile(path string, port uint16, bucket *ratelimit.TokenBucket) error {
 	var peerID [20]byte
 	_, err := rand.Read(peerID[:])
 	if err != nil {
 		return err
 	}
 
-	peers, err := t.requestPeers(peerID, Port)
+	peers, err := t.requestPeers(peerID, port)
 	if err != nil {
 		return err
 	}
@@ -54,6 +56,7 @@ func (t *TorrentFile) DownloadToFile(path string) error {
 		PieceLength: t.PieceLength,
 		Length:      t.Length,
 		Name:        t.Name,
+		Bucket:      bucket,
 	}
 
 	outfile, err := os.Create(path)
