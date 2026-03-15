@@ -1,38 +1,74 @@
 # Go-Bittorrent
 
-Go-Bittorrent is a simple BitTorrent client implemented in Go. It allows you to download torrent files from the BitTorrent network.
+![Go Version](https://img.shields.io/badge/go-1.25.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
+Go-Bittorrent is a simple, concurrent BitTorrent client implemented in Go. It allows you to download files from the BitTorrent network by parsing `.torrent` files and connecting directly to peers via the BitTorrent protocol.
+
+This project was built to explore network programming, parsing complex binary formats (Bencode/BitTorrent wire protocol), and leveraging Go's robust concurrency primitives to handle multiple TCP connections simultaneously.
 
 ## Features
 
-- Open and parse torrent files: The client can read torrent files and extract the necessary information to start the download process.
-- Download torrent files to a specified path: The client can download files from the BitTorrent network and save them to a specified location on your local system.
+- **Bencode Parsing**: Extracts and hashes metadata from `.torrent` files.
+- **Concurrent Peer Connections**: Uses worker pools to securely download pieces from multiple peers at the same time.
+- **Data Integrity Validation**: Validates downloaded pieces stream against SHA-1 hashes to prevent corruption.
+- **Memory Optimized**: Directly writes validated pieces to disk via `os.File.WriteAt` to keep the memory footprint extremely low (supports streaming multi-gigabyte files).
+- **Graceful Fault Tolerance**: Handles TCP timeouts, choking/unchoking, and unresponsive peers gracefully.
+
+> **Note:** Currently, this client supports downloading single-file torrents over HTTP/TCP tracking.
+
+## Architecture
+
+At a high level, the client parses the `.torrent` file to identify the tracker and piece hashes. It fetches a list of peers from the tracker, then performs TCP handshakes. A job queue coordinates which goroutines download which pieces, and a result queue streams them safely into the output file.
+
+```mermaid
+graph TD;
+    A[Torrent File] -->|Parses| B(Bencode Decoder);
+    B -->|Provides InfoHash & PieceHashes| C[Tracker Request];
+    C -->|Returns Peer IPs| D{Peer Manager};
+    D --> E[Worker Goroutine 1];
+    D --> F[Worker Goroutine 2];
+    D --> G[Worker Goroutine N];
+    E -->|Downloads Piece & SHA1 Validates| H(Disk Writer);
+    F -->|Downloads Piece & SHA1 Validates| H;
+    G -->|Downloads Piece & SHA1 Validates| H;
+```
+
+## Challenges Faced
+
+Building a BitTorrent client from scratch presented a few rewarding engineering challenges:
+1. **Concurrency and State Management**: Managing connection state (choked vs. unchoked) across many peers requires careful synchronization. I solved this by isolating connection state into a `Client` struct and using Go Channels (`workQueue` and `resultQueue`) to orchestrate tasks, effectively avoiding complex mutexes and deadlocks.
+2. **Binary Protocol Implementation**: The BitTorrent wire protocol communicates in strict byte streams without clear delimiters, meaning parsing requires exact byte reading and timeouts to prevent hanging on malicious or broken peers.
+3. **Memory Management**: Rather than buffering an entire target file in memory—which could crash the program on a 4GB ISO—I transitioned to writing chunks concurrently to the disk using `WriteAt`, significantly lowering the program's memory footprint.
 
 ## Installation
 
-To install Go-Bittorrent, you need to have Go installed on your system. You can download and install Go from [here](https://golang.org/dl/).
-
-After installing Go, clone the repository:
+Go 1.25 or higher is required.
 
 ```bash
 git clone https://github.com/pouyasadri/go-bittorrent.git
-```
-
-Then, navigate to the project directory:
-
-```bash
 cd go-bittorrent
+go build
 ```
+
 ## Usage
-To use Go-Bittorrent, you need to provide two arguments: the path to the torrent file and the output path for the downloaded file.
+
+To use Go-Bittorrent, you need to provide two arguments: the path to the torrent file and the output path where the downloaded file should be saved.
 
 ```bash
-go run main.go <path-to-torrent-file> <output-path>
+./go-bittorrent <path-to-torrent-file> <output-path>
 ```
+
+**Example:**
+> *(Optional: Add a GIF or screenshot of the terminal here showing the download progress)*
+
 ## Testing
-Go-Bittorrent comes with a suite of tests to ensure its functionality. To run the tests:
+
+The project includes tests to ensure the core parser and network abstractions are functional. To run the tests:
 
 ```bash
 go test ./...
 ```
-## Contributing
-Contributions to Go-Bittorrent are welcome. If you want to contribute, please open a pull request. For major changes, please open an issue first to discuss what you would like to change.
+
+## License
+This project is licensed under the [MIT License](LICENSE).

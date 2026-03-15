@@ -8,6 +8,7 @@ import (
 	"github.com/pouyasadri/go-bittorrent/message"
 	"github.com/pouyasadri/go-bittorrent/peers"
 	"log"
+	"os"
 	"runtime"
 	"time"
 )
@@ -59,15 +60,15 @@ func (state *pieceProgress) readMessage() error {
 	}
 	switch msg.ID {
 	case message.MsgUnchoke:
-		state.client.Chocked = false
+		state.client.Choked = false
 	case message.MsgChoke:
-		state.client.Chocked = true
+		state.client.Choked = true
 	case message.MsgHave:
 		index, err := message.ParseHave(msg)
 		if err != nil {
 			return err
 		}
-		state.client.Bittfield.SetPiece(index)
+		state.client.Bitfield.SetPiece(index)
 	case message.MsgPiece:
 		n, err := message.ParsePiece(state.index, state.buf, msg)
 		if err != nil {
@@ -92,7 +93,7 @@ func attemptDownloadPiece(c *client.Client, pw *pieceWork) ([]byte, error) {
 
 	for state.downloaded < pw.length {
 		// if unchoncked send request until we have enough unfufilled requests
-		if !state.client.Chocked {
+		if !state.client.Choked {
 			for state.backlog < MaxBacklog && state.requested < pw.length {
 				blockSize := MaxBlockSize
 				// Last block might be shorter than the typical block.
@@ -127,7 +128,7 @@ func checkIntegrity(pw *pieceWork, buf []byte) error {
 func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork, result chan *pieceResult) {
 	c, err := client.New(peer, t.PeerID, t.InfoHash)
 	if err != nil {
-		log.Printf("Clould not handshake with %s: %s", peer.String(), err)
+		log.Printf("Could not handshake with %s: %s", peer.String(), err)
 		return
 	}
 	defer c.Conn.Close()
@@ -137,7 +138,7 @@ func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork
 	c.SendInterested()
 
 	for pw := range workQueue {
-		if !c.Bittfield.HasPiece(pw.index) {
+		if !c.Bitfield.HasPiece(pw.index) {
 			workQueue <- pw // put piece back on the queue
 			continue
 		}
@@ -175,8 +176,8 @@ func (t *Torrent) calculatePieceSize(index int) int {
 	return end - begin
 }
 
-// Download downloads the torrent . this stores the entire file in memory
-func (t *Torrent) Download() ([]byte, error) {
+// Download downloads the torrent directly to a file
+func (t *Torrent) Download(outFile *os.File) error {
 	log.Println("Starting download for", t.Name)
 	// Init queues for workers to retrieve work and send results
 	workQueue := make(chan *pieceWork, len(t.PieceHashes))
@@ -191,13 +192,15 @@ func (t *Torrent) Download() ([]byte, error) {
 		go t.startDownloadWorker(peer, workQueue, resultQueue)
 	}
 
-	// Collect results into a buffer until full
-	buf := make([]byte, t.Length)
+	// Collect results into a file until full
 	donePieces := 0
 	for donePieces < len(t.PieceHashes) {
 		res := <-resultQueue
-		begin, end := t.calculateBoundsForPiece(res.index)
-		copy(buf[begin:end], res.buf)
+		begin, _ := t.calculateBoundsForPiece(res.index)
+		_, err := outFile.WriteAt(res.buf, int64(begin))
+		if err != nil {
+			return err
+		}
 		donePieces++
 
 		percent := float64(donePieces) / float64(len(t.PieceHashes)) * 100
@@ -207,5 +210,5 @@ func (t *Torrent) Download() ([]byte, error) {
 
 	}
 	close(workQueue)
-	return buf, nil
+	return nil
 }

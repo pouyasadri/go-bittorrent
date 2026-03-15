@@ -56,20 +56,17 @@ func (t *TorrentFile) DownloadToFile(path string) error {
 		Name:        t.Name,
 	}
 
-	buf, err := torrent.Download()
-	if err != nil {
-		return err
-	}
-
 	outfile, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer outfile.Close()
-	_, err = outfile.Write(buf)
+
+	err = torrent.Download(outfile)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -102,7 +99,7 @@ func (i *bencodeInfo) splitPieceHashes() ([][20]byte, error) {
 	hashLen := 20 // length of sha1 hash
 	buf := []byte(i.Pieces)
 	if len(buf)%hashLen != 0 {
-		err := fmt.Errorf("Received malformed pieces of length %d", len(buf))
+		err := fmt.Errorf("received malformed pieces of length %d", len(buf))
 		return nil, err
 	}
 	numHashes := len(buf) / hashLen

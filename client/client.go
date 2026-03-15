@@ -14,8 +14,8 @@ import (
 // A Client is a TCP connection with a peer
 type Client struct {
 	Conn      net.Conn
-	Chocked   bool
-	Bittfield bitfield.Bitfield
+	Choked    bool
+	Bitfield  bitfield.Bitfield
 	peer      peers.Peer
 	infoHash  [20]byte
 	peerID    [20]byte
@@ -50,6 +50,9 @@ func recvBitfield(conn net.Conn) (bitfield.Bitfield, error) {
 
 	msg, err := message.Read(conn)
 	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return nil, nil // Peer sent no bitfield (has no pieces)
+		}
 		return nil, err
 	}
 	if msg == nil {
@@ -86,8 +89,8 @@ func New(peer peers.Peer, peerID, infoHash [20]byte) (*Client, error) {
 
 	return &Client{
 		Conn:      conn,
-		Chocked:   true,
-		Bittfield: bitfield,
+		Choked:    true,
+		Bitfield:  bitfield,
 		peer:      peer,
 		infoHash:  infoHash,
 		peerID:    peerID,
