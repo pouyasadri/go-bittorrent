@@ -9,17 +9,19 @@ This project was built to explore network programming, parsing complex binary fo
 
 ## Features
 
-- **Bencode Parsing**: Extracts and hashes metadata from `.torrent` files.
-- **Concurrent Peer Connections**: Uses worker pools to securely download pieces from multiple peers at the same time.
-- **Data Integrity Validation**: Validates downloaded pieces stream against SHA-1 hashes to prevent corruption.
-- **Memory Optimized**: Directly writes validated pieces to disk via `os.File.WriteAt` to keep the memory footprint extremely low (supports streaming multi-gigabyte files).
-- **Graceful Fault Tolerance**: Handles TCP timeouts, choking/unchoking, and unresponsive peers gracefully.
+- **Bencode Parsing**: Extracts and hashes metadata from `.torrent` files using high-performance parsing.
+- **Concurrent Peer Connections**: Uses worker pools and goroutines to download pieces from multiple peers simultaneously.
+- **Download Rate Limiting**: Features a built-in **Token Bucket ratelimiter** to throttle download speeds and manage bandwidth.
+- **Data Integrity Validation**: Validates every downloaded piece against SHA-1 hashes to prevent data corruption.
+- **Memory Optimized**: Directly writes validated pieces to disk via `os.File.WriteAt`, ensuring a low memory footprint even for multi-gigabyte files.
+- **Enhanced UI**: Integrated with `pterm` for a modern, responsive terminal interface with debug messaging support.
+- **Graceful Fault Tolerance**: Robust handling of TCP timeouts, choking/unchoking, and peer disconnections.
 
 > **Note:** Currently, this client supports downloading single-file torrents over HTTP/TCP tracking.
 
 ## Architecture
 
-At a high level, the client parses the `.torrent` file to identify the tracker and piece hashes. It fetches a list of peers from the tracker, then performs TCP handshakes. A job queue coordinates which goroutines download which pieces, and a result queue streams them safely into the output file.
+The client parses the `.torrent` file to identify the tracker and piece hashes. It fetches a list of peers from the tracker, wraps connections in a `RateLimitedConn` if throttling is enabled, and performs TCP handshakes. A job queue coordinates piece downloads across worker goroutines, which stream validated data into the output file.
 
 ```mermaid
 graph TD;
@@ -33,13 +35,6 @@ graph TD;
     F -->|Downloads Piece & SHA1 Validates| H;
     G -->|Downloads Piece & SHA1 Validates| H;
 ```
-
-## Challenges Faced
-
-Building a BitTorrent client from scratch presented a few rewarding engineering challenges:
-1. **Concurrency and State Management**: Managing connection state (choked vs. unchoked) across many peers requires careful synchronization. I solved this by isolating connection state into a `Client` struct and using Go Channels (`workQueue` and `resultQueue`) to orchestrate tasks, effectively avoiding complex mutexes and deadlocks.
-2. **Binary Protocol Implementation**: The BitTorrent wire protocol communicates in strict byte streams without clear delimiters, meaning parsing requires exact byte reading and timeouts to prevent hanging on malicious or broken peers.
-3. **Memory Management**: Rather than buffering an entire target file in memory—which could crash the program on a 4GB ISO—I transitioned to writing chunks concurrently to the disk using `WriteAt`, significantly lowering the program's memory footprint.
 
 ## Installation
 
@@ -63,30 +58,40 @@ make docker-build  # Build the Docker image
 
 ## Usage
 
-You can run the client either locally or via a Docker container. In both cases, you must provide the source `.torrent` file and the output file name.
+The client uses a flag-based CLI. You must provide the source `.torrent` file as a positional argument and use flags to configure behavior.
 
 ### 1. Running Locally
-Assuming you ran `make build`:
+
 ```bash
-./go-bittorrent <path-to-torrent-file> <output-path>
+./go-bittorrent --out=<output-file> [options] <path-to-torrent-file>
+```
+
+**Options:**
+- `--out`: (Required) Path where the downloaded file will be saved.
+- `--max-download`: Max download speed in KB/s (e.g., `1024` for 1MB/s). Set to `0` for unlimited.
+- `--port`: Port to listen on for peer connections (default: `6881`).
+- `--debug`: Enable detailed debug logging via `pterm`.
+
+**Example:**
+```bash
+./go-bittorrent --out=debian.iso --max-download=2048 --debug debian.torrent
 ```
 
 ### 2. Running via Docker
-Assuming you ran `make docker-build`. **Note**: The `Makefile` automatically handles volume mounting so the container can read torrents from and write files to your current local directory.
+
+The `Makefile` simplifies Docker execution including volume mounting.
+
 ```bash
 make docker-run TORRENT=your_file.torrent OUT=your_file.iso
 ```
 
-**Example:**
-> *(Optional: Add a GIF or screenshot of the terminal here showing the download progress)*
+## Testing & Quality
 
-## Testing
+The project maintains high standards for testing across core packages (`p2p`, `ratelimit`, `torrentfile`, etc.).
 
-The project includes tests to ensure the core parser and network abstractions are functional. To run the tests locally:
-
-```bash
-make test
-```
+- **Run Tests**: `make test`
+- **Coverage**: The project uses Go coverage tools. You can find coverage profiles (e.g., `coverage.out`) in the root directory.
 
 ## License
+
 This project is licensed under the [MIT License](LICENSE).
