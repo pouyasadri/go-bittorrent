@@ -43,20 +43,38 @@ Building a BitTorrent client from scratch presented a few rewarding engineering 
 
 ## Installation
 
-Go 1.25 or higher is required.
+Go 1.25 or higher is required. Alternatively, you can run the application entirely through Docker.
 
 ```bash
 git clone https://github.com/pouyasadri/go-bittorrent.git
 cd go-bittorrent
-go build
+```
+
+## Quick Start (Makefile)
+
+A `Makefile` is provided to simplify common tasks.
+
+```bash
+make help          # View all available commands
+make build         # Compile the Go application locally
+make test          # Run all Go unit tests
+make docker-build  # Build the Docker image
 ```
 
 ## Usage
 
-To use Go-Bittorrent, you need to provide two arguments: the path to the torrent file and the output path where the downloaded file should be saved.
+You can run the client either locally or via a Docker container. In both cases, you must provide the source `.torrent` file and the output file name.
 
+### 1. Running Locally
+Assuming you ran `make build`:
 ```bash
 ./go-bittorrent <path-to-torrent-file> <output-path>
+```
+
+### 2. Running via Docker
+Assuming you ran `make docker-build`. **Note**: The `Makefile` automatically handles volume mounting so the container can read torrents from and write files to your current local directory.
+```bash
+make docker-run TORRENT=your_file.torrent OUT=your_file.iso
 ```
 
 **Example:**
@@ -64,10 +82,10 @@ To use Go-Bittorrent, you need to provide two arguments: the path to the torrent
 
 ## Testing
 
-The project includes tests to ensure the core parser and network abstractions are functional. To run the tests:
+The project includes tests to ensure the core parser and network abstractions are functional. To run the tests locally:
 
 ```bash
-go test ./...
+make test
 ```
 
 ## License
