@@ -64,3 +64,19 @@ func TestRequestPeers(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, expected, p)
 }
+
+func TestRequestPeersError(t *testing.T) {
+	// Client error (server down)
+	tf := TorrentFile{Announce: "http://127.0.0.1:0/announce"}
+	_, err := tf.requestPeers([20]byte{}, 6881)
+	assert.NotNil(t, err)
+
+	// Unmarshal error (server returns bad bencode)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("invalid bencode"))
+	}))
+	defer ts.Close()
+	tf2 := TorrentFile{Announce: ts.URL}
+	_, err = tf2.requestPeers([20]byte{}, 6881)
+	assert.NotNil(t, err)
+}
