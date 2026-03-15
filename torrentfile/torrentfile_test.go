@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"flag"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,4 +89,55 @@ func TestToTorrentFile(t *testing.T) {
 		}
 		assert.Equal(t, test.output, to)
 	}
+}
+
+func TestOpenError(t *testing.T) {
+	_, err := Open("nonexistent")
+	assert.NotNil(t, err)
+
+	invalidFile, _ := os.CreateTemp("", "invalid_bencode")
+	invalidFile.Write([]byte("invalid bencode"))
+	invalidFile.Close()
+	defer os.Remove(invalidFile.Name())
+
+	_, err = Open(invalidFile.Name())
+	assert.NotNil(t, err)
+}
+
+func TestDownloadToFile(t *testing.T) {
+	// 1. requestPeers fails
+	tsFails := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer tsFails.Close()
+
+	tf := TorrentFile{Announce: tsFails.URL}
+	err := tf.DownloadToFile("test.out", 6881, nil)
+	assert.NotNil(t, err)
+
+	// 2. requestPeers succeeds, download starts and returns error because peers are fake
+	tsSucceeds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// return some valid bencode with fake peers
+		response := []byte(
+			"d" +
+				"8:interval" + "i900e" +
+				"5:peers" + "12:" +
+				string([]byte{127, 0, 0, 1, 0x1A, 0xE9, 127, 0, 0, 1, 0x1A, 0xEA}) + "e")
+		w.Write(response)
+	}))
+	defer tsSucceeds.Close()
+
+	tf2 := TorrentFile{
+		Announce:    tsSucceeds.URL,
+		PieceHashes: [][20]byte{{1, 2, 3}},
+	}
+
+	// Ensure we cleanup the file we create
+	defer os.Remove("test_download.out")
+
+	go func() {
+		_ = tf2.DownloadToFile("test_download.out", 6881, nil)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
 }
