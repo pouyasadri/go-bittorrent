@@ -1,0 +1,27 @@
+# Binaries
+go-bittorrent
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output files
+*.iso
+*.img
+*.tar
+*.out
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+.AppleDouble
+.LSOverride
